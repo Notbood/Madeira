@@ -151,10 +151,41 @@ jobs:
           key: ${{ env.LLVM_CACHE_PREFIX }}-${{ github.run_id }}
 
   # ---------------------------------------------------------------------------
+  # Microsoft's VC++ runtime DLLs (docs: tools/fetch-vcruntime.md). Gathered on
+  # a Windows runner from Visual Studio's redistributable folder, which gives
+  # the signed files directly (extracting VC_redist.x64.exe on macOS did not).
+  # ---------------------------------------------------------------------------
+  vcruntime:
+    runs-on: windows-latest
+    steps:
+      - name: Collect the Microsoft-signed VC++ runtime DLLs
+        shell: pwsh
+        run: |
+          $want = 'concrt140','msvcp140','msvcp140_1','msvcp140_2','msvcp140_atomic_wait','msvcp140_codecvt_ids','vcamp140','vccorlib140','vcomp140','vcruntime140','vcruntime140_1','vcruntime140_threads'
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          $files = Get-ChildItem -Path "$env:ProgramFiles\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64\Microsoft.VC*\*.dll" -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending
+          foreach ($n in $want) {
+            $f = $files | Where-Object { $_.Name -ieq "$n.dll" } | Select-Object -First 1
+            if (-not $f) { $f = Get-ChildItem "$env:SystemRoot\System32\$n.dll" -ErrorAction SilentlyContinue | Select-Object -First 1 }
+            if (-not $f) { throw "missing $n.dll" }
+            $sig = Get-AuthenticodeSignature $f.FullName
+            if ($sig.Status -in 'NotSigned','HashMismatch') { throw "$($f.FullName): $($sig.Status)" }
+            Copy-Item $f.FullName out\
+            "{0,-24} {1}  [{2}]" -f $n, $f.FullName, $sig.Status
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vcruntime-dlls
+          path: out
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
   # Everything else + the Xcode build
   # ---------------------------------------------------------------------------
   build:
-    needs: llvm-ios
+    needs: [llvm-ios, vcruntime]
     runs-on: macos-26
     timeout-minutes: 360
     steps:
@@ -217,50 +248,19 @@ jobs:
           tar -xf /tmp/llvm-mingw.tar.xz -C toolchains
           ls toolchains
 
-      - name: Microsoft VC++ runtime DLLs (tools/fetch-vcruntime.md)
+      - name: Microsoft VC++ runtime DLLs (collected by the Windows job)
+        uses: actions/download-artifact@v4
+        with:
+          name: vcruntime-dlls
+          path: app/Madeira/x86_64-vcruntime
+
+      - name: Check VC++ runtime DLLs
         run: |
-          set -euo pipefail
-          OUT=app/Madeira/x86_64-vcruntime
-          mkdir -p "$OUT" /tmp/vcredist
-          curl -fsSL -o /tmp/VC_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
-
-          WANT="concrt140 msvcp140 msvcp140_1 msvcp140_2 msvcp140_atomic_wait msvcp140_codecvt_ids vcamp140 vccorlib140 vcomp140 vcruntime140 vcruntime140_1 vcruntime140_threads"
-          missing() { for n in $WANT; do [ -f "$OUT/$n.dll" ] || echo "$n.dll"; done; }
-
-          # The documented way
-          7zz x /tmp/VC_redist.x64.exe -o/tmp/vcredist -y > /dev/null || true
-          for cab in /tmp/vcredist/.rsrc/1033/CABINET/*.cab; do
-            [ -f "$cab" ] && 7zz x "$cab" -o"$OUT" -y > /dev/null || true
+          cd app/Madeira/x86_64-vcruntime
+          ls -l
+          for n in concrt140 msvcp140 msvcp140_1 msvcp140_2 msvcp140_atomic_wait msvcp140_codecvt_ids vcamp140 vccorlib140 vcomp140 vcruntime140 vcruntime140_1 vcruntime140_threads; do
+            test -f "$n.dll" || { echo "missing $n.dll"; exit 1; }
           done
-
-          # Fallback: unpack every nested MSI/CAB, then pick the DLLs by name
-          if [ -n "$(missing)" ]; then
-            for pass in 1 2; do
-              find /tmp/vcredist -type f \( -iname '*.msi' -o -iname '*.cab' \) | while read -r f; do
-                [ -d "${f}_x" ] || 7zz x "$f" -o"${f}_x" -y > /dev/null || true
-              done
-            done
-            for n in $(missing); do
-              f=$(find /tmp/vcredist -type f -iname "$n" | head -1 || true)
-              [ -n "$f" ] && cp "$f" "$OUT/$n"
-            done
-          fi
-
-          if [ -n "$(missing)" ]; then
-            echo "Missing VC++ runtime DLLs: $(missing)"
-            find /tmp/vcredist -maxdepth 4 | head -80
-            exit 1
-          fi
-
-          # Must stay byte-for-byte as Microsoft shipped them (signature intact)
-          python3 - "$OUT"/*.dll <<'EOF'
-          import struct, sys
-          for path in sys.argv[1:]:
-              d = open(path, 'rb').read()
-              pe = struct.unpack_from('<I', d, 0x3c)[0]
-              off, size = struct.unpack_from('<II', d, pe + 24 + 112 + 4*8)
-              print(('signed  ' if size and off + size <= len(d) else 'UNSIGNED'), path)
-          EOF
 
       # ---- native build chains, in the order of docs/BUILDING.md ----
 
