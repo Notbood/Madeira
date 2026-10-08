@@ -118,9 +118,15 @@ jobs:
 
           # Log the build; on failure print the first real error as the LAST
           # lines of the step, so the end of the log is all you need to paste.
+          # Only the static libraries are needed. LLVM's tools can't link for
+          # iOS here (it passes --gc-sections to Apple's ld), so skip them.
+          LIBS=$(ninja -C llvm-ios-build -t targets all | sed -n -E 's#^(lib/lib[^:]+\.a):.*#\1#p')
+          test -n "$LIBS" || { echo "no static library targets found"; exit 1; }
+          echo "$LIBS" | wc -l
+
           set +e
           set -o pipefail
-          ninja -C llvm-ios-build 2>&1 | tee /tmp/llvm-ios-ninja.log
+          ninja -C llvm-ios-build $LIBS 2>&1 | tee /tmp/llvm-ios-ninja.log
           rc=$?
           if [ $rc -ne 0 ]; then
             echo "=================== FIRST FAILURE ==================="
