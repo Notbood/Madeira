@@ -186,7 +186,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build:
     needs: [llvm-ios, vcruntime]
-    runs-on: macos-26
+    runs-on: xcode-27   # Xcode 27 / iOS 27 SDK, needed by build/ntdll-unix
     timeout-minutes: 360
     steps:
       - name: Checkout
@@ -274,7 +274,17 @@ jobs:
         run: bash build/ffmpeg/build.sh
 
       - name: FEX (iOS static libs)
-        run: bash build/fex-ios/build.sh
+        run: |
+          # Newer CMake leaves CMAKE_SYSTEM_PROCESSOR empty when targeting iOS,
+          # which FEX's CMakeLists rejects. A tiny toolchain file supplies it.
+          echo 'set(CMAKE_SYSTEM_PROCESSOR arm64)' > "$RUNNER_TEMP/arm64-processor.cmake"
+          export CMAKE_TOOLCHAIN_FILE="$RUNNER_TEMP/arm64-processor.cmake"
+          bash build/fex-ios/build.sh
+          # The Xcode project also links libJemallocLibs.a
+          if [ ! -f FEX/build-ios/FEXCore/Source/libJemallocLibs.a ]; then
+            cmake --build FEX/build-ios --target JemallocLibs -j 4
+          fi
+          ls -l FEX/build-ios/FEXCore/Source/*.a
 
       - name: FEX (ARM64EC -> xtajit64.dll)
         run: bash build/fex-arm64ec/build.sh
@@ -302,6 +312,9 @@ jobs:
             f=$(find dlls/$m -name "$m.dll" -path '*arm64ec-windows*' | head -1)
             cp "$f" "$FARM/"
           done
+
+      - name: Metal toolchain (separate download since Xcode 26)
+        run: xcodebuild -downloadComponent MetalToolchain || true
 
       - name: DXMT unix side
         run: bash build/dxmt-ios/build.sh
