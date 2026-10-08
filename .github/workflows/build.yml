@@ -235,6 +235,14 @@ jobs:
           HOMEBREW_NO_INSTALL_UPGRADE: "1"
         run: |
           brew install bison flex cmake ninja meson nasm pkgconf ldid sevenzip gnu-sed
+          # FEX's CMake helper scripts import `packaging`, which the runner's
+          # Python lacks. Install it to a private folder and put that on
+          # PYTHONPATH for every later step, so it works for whichever Python
+          # CMake ends up using.
+          which -a python3; python3 --version
+          python3 -m pip install --break-system-packages --target "$RUNNER_TEMP/pylibs" packaging
+          echo "PYTHONPATH=$RUNNER_TEMP/pylibs" >> "$GITHUB_ENV"
+          PYTHONPATH="$RUNNER_TEMP/pylibs" python3 -c "import packaging.version; print('packaging OK')"
           # Wine's configure needs bison >= 3; macOS ships 2.3
           echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
           echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
