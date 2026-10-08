@@ -113,8 +113,24 @@ jobs:
             -DLLVM_ENABLE_PROJECTS= -DLLVM_BUILD_TOOLS=Off \
             -DLLVM_INCLUDE_TESTS=Off -DLLVM_ENABLE_ZLIB=Off \
             -DLLVM_ENABLE_ZSTD=Off -DLLVM_ENABLE_LIBXML2=Off \
-            -DLLVM_NATIVE_TOOL_DIR="$PWD/llvm-host-build/bin"
-          ninja -C llvm-ios-build
+            -DLLVM_NATIVE_TOOL_DIR="$PWD/llvm-host-build/bin" \
+            -DLLVM_TABLEGEN="$PWD/llvm-host-build/bin/llvm-tblgen"
+
+          # Log the build; on failure print the first real error as the LAST
+          # lines of the step, so the end of the log is all you need to paste.
+          set +e
+          set -o pipefail
+          ninja -C llvm-ios-build 2>&1 | tee /tmp/llvm-ios-ninja.log
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "=================== FIRST FAILURE ==================="
+            if grep -q 'FAILED:' /tmp/llvm-ios-ninja.log; then
+              awk '/FAILED:/{f=1} f{print; if(++n>40) exit}' /tmp/llvm-ios-ninja.log
+            else
+              tail -n 40 /tmp/llvm-ios-ninja.log
+            fi
+            exit $rc
+          fi
           touch .llvm-done
 
       - name: Save LLVM cache (also after a timeout, so a rerun resumes)
