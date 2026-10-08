@@ -94,7 +94,12 @@ jobs:
             -DLLVM_TARGETS_TO_BUILD= -DLLVM_ENABLE_PROJECTS= \
             -DLLVM_INCLUDE_TESTS=Off -DLLVM_ENABLE_ZLIB=Off \
             -DLLVM_ENABLE_ZSTD=Off -DLLVM_ENABLE_LIBXML2=Off
-          ninja -C llvm-host-build llvm-tblgen llvm-min-tblgen
+          ninja -C llvm-host-build llvm-tblgen
+          # llvm-min-tblgen is not a target at every LLVM commit
+          if ninja -C llvm-host-build -t targets all | grep -q '^llvm-min-tblgen:'; then
+            ninja -C llvm-host-build llvm-min-tblgen
+          fi
+          ls llvm-host-build/bin
 
           # iOS build (flags from docs/BUILDING.md)
           cmake -S "$SRC" -B llvm-ios-build -G Ninja \
