@@ -285,7 +285,12 @@ jobs:
         run: |
           # Newer CMake leaves CMAKE_SYSTEM_PROCESSOR empty when targeting iOS,
           # which FEX's CMakeLists rejects. A tiny toolchain file supplies it.
-          echo 'set(CMAKE_SYSTEM_PROCESSOR arm64)' > "$RUNNER_TEMP/arm64-processor.cmake"
+          # TUNE_CPU defaults to "native", which makes FEX read the Linux-only
+          # /proc/cpuinfo; a CI runner is not the phone anyway, so use generic.
+          {
+            echo 'set(CMAKE_SYSTEM_PROCESSOR arm64)'
+            echo 'set(TUNE_CPU "generic" CACHE STRING "Override the CPU the build is tuned for" FORCE)'
+          } > "$RUNNER_TEMP/arm64-processor.cmake"
           export CMAKE_TOOLCHAIN_FILE="$RUNNER_TEMP/arm64-processor.cmake"
           bash build/fex-ios/build.sh
           # The Xcode project also links libJemallocLibs.a
