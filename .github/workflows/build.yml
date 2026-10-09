@@ -302,24 +302,12 @@ jobs:
       - name: FEX (ARM64EC -> xtajit64.dll)
         run: |
           set -uo pipefail
-          perl -pi -e 's/-DBUILD_FEXCONFIG=ON/-DMINGW_TRIPLE=arm64ec-w64-mingw32 -DTUNE_CPU=generic -DBUILD_FEXCONFIG=ON/' build/fex-arm64ec/build.sh
+          perl -pi -e 's/-DBUILD_FEXCONFIG=ON/-DMINGW_TRIPLE=arm64ec-w64-mingw32 -DTUNE_CPU=generic -DCMAKE_C_FLAGS=-DFEX_IOS_HOST -DCMAKE_CXX_FLAGS=-DFEX_IOS_HOST -DBUILD_FEXCONFIG=ON/' build/fex-arm64ec/build.sh
           if ! bash build/fex-arm64ec/build.sh; then
             echo "=========== DIAGNOSTICS ==========="
-            echo "--- where IosJitReverseTranslate appears ---"
-            grep -rnI 'IosJitReverseTranslate' FEX build app --exclude-dir=build-arm64ec --exclude-dir=build-ios | head -20
-            echo "--- Module.cpp includes and conditionals ---"
-            grep -nE '^\s*#\s*(include|if|ifdef|ifndef|else|endif)' FEX/Source/Windows/ARM64EC/Module.cpp | head -60
-            echo "--- FEX revision ---"
-            git submodule status FEX
-            git -C FEX log -1 --oneline
+            grep -rnI -e 'FEX_IOS_HOST' -e 'IosJitAlias' FEX build --include='CMakeLists.txt' --include='*.cmake' --include='*.sh' --exclude-dir=build-arm64ec --exclude-dir=build-ios | head -30
             exit 1
           fi
-
-      - name: Wine unix side
-        run: |
-          bash build/ntdll-unix/build.sh
-          bash build/wineserver/build.sh
-          bash build/win32u-unix/build.sh
 
       - name: Wine PE side (ntdll)
         run: bash build/wine-pe/build-ntdll.sh
