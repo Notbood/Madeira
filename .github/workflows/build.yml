@@ -371,8 +371,6 @@ jobs:
 
       - name: DXMT PE side (winemetal, d3d11)
         run: |
-      - name: DXMT PE side (winemetal, d3d11)
-        run: |
           set -euo pipefail
           export PATH="$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW/bin:$PATH"
           mkdir -p dxmt/toolchains
