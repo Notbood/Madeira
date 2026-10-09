@@ -349,14 +349,9 @@ jobs:
         run: |
           set -euo pipefail
           cd dxmt/src/airconv
-          echo "--- context ---"
-          grep -n 'include\|using namespace' shaders/air_tessellation.metal | head
-          sed -n '145,158p' shaders/air_tessellation.metal
-          echo "--- toolchain atomic header ---"
-          TC=$(dirname "$(dirname "$(xcrun --find metal)")")
-          grep -rn --include=metal_atomic '__metal_atomic_fetch_add_explicit' "$TC" 2>/dev/null | head -4 || true
-          echo "--- patch + build ---"
-          perl -pi -e 's/__metal_atomic_fetch_add_explicit\(out_count, 1, int\(memory_order_relaxed\), __METAL_MEMORY_SCOPE_THREADGROUP__\)/metal::atomic_fetch_add_explicit(out_count, 1, metal::memory_order_relaxed)/' shaders/air_tessellation.metal
+          # Newer Metal toolchains want a 5th "flags" argument on this builtin
+          perl -pi -e 's/(__metal_atomic_fetch_add_explicit\(out_count, 1, int\(memory_order_relaxed\), __METAL_MEMORY_SCOPE_THREADGROUP__)\)/$1, __METAL_MEMORY_FLAGS_NONE__)/' shaders/air_tessellation.metal
+          grep -n '__metal_atomic_fetch_add_explicit' shaders/air_tessellation.metal
           for s in air_msad air_samplepos air_tessellation; do
             xcrun -sdk macosx metal -std=metal3.1 --target=air64-apple-macos14.0 \
               -o "/tmp/$s.air" -c "shaders/$s.metal"
