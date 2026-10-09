@@ -373,24 +373,27 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW/bin:$PATH"
+
+          # DXMT's cross file looks for llvm-mingw under dxmt/toolchains
           mkdir -p dxmt/toolchains
           ln -sfn "$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW" "dxmt/toolchains/$LLVM_MINGW"
-          if ! find wine/build-arm64ec -name libwinecrt0.a | grep -q .; then
-            make -C wine/build-arm64ec -j4 dlls/winecrt0/arm64ec-windows/libwinecrt0.a
+          test -x "dxmt/toolchains/$LLVM_MINGW/bin/arm64ec-w64-mingw32-clang"
+
+          # DXMT also links Wine's dbghelp import library; build it if missing
+          WB="$GITHUB_WORKSPACE/wine/build-arm64ec"
+          if ! find "$WB/dlls/dbghelp" -name 'libdbghelp*' 2>/dev/null | grep -q .; then
+            make -C "$WB" -j4 dlls/dbghelp/arm64ec-windows/libdbghelp.a
           fi
-          find wine/build-arm64ec -name 'libwinecrt0.a' -o -name 'libntdll.a'
-          sed -n 1,40p dxmt/src/winemetal/meson.build
+
+          # wine_build_path must be absolute: DXMT joins relative paths onto dxmt/
           if ! meson setup dxmt/build-arm64ec dxmt -Dbuildtype=release \
-              -Dwine_build_path=../../wine/build-arm64ec \
+              -Dwine_build_path="$WB" \
               --cross-file=dxmt/build-arm64ec-win.txt; then
-            echo "=========== WINECRT0 DIAGNOSTICS ==========="
-            find wine/build-arm64ec \( -name 'libwinecrt0*' -o -name 'libntdll*' \) | head
-            grep -rn 'wine_build_path\|winecrt0' dxmt --include=meson.build --include=meson.options | head -20
-            sed -n 1,30p dxmt/src/winemetal/meson.build
+            echo "=========== MESON SETUP DIAGNOSTICS ==========="
+            find "$WB" \( -name 'libwinecrt0*' -o -name 'libntdll*' -o -name 'libdbghelp*' \) || true
             exit 1
           fi
-            -Dwine_build_path=../../wine/build-arm64ec \
-            --cross-file=dxmt/build-arm64ec-win.txt
+
           T=$(ninja -C dxmt/build-arm64ec -t targets all \
                 | sed -n -E 's/^(.*\/(winemetal|d3d11)\.dll): .*/\1/p' | sort -u)
           echo "$T"
