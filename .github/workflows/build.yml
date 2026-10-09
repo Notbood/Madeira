@@ -371,8 +371,13 @@ jobs:
 
       - name: DXMT PE side (winemetal, d3d11)
         run: |
+      - name: DXMT PE side (winemetal, d3d11)
+        run: |
           set -euo pipefail
           export PATH="$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW/bin:$PATH"
+          mkdir -p dxmt/toolchains
+          ln -sfn "$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW" "dxmt/toolchains/$LLVM_MINGW"
+          test -x "dxmt/toolchains/$LLVM_MINGW/bin/arm64ec-w64-mingw32-clang"
           meson setup dxmt/build-arm64ec dxmt -Dbuildtype=release \
             -Dwine_build_path=../../wine/build-arm64ec \
             --cross-file=dxmt/build-arm64ec-win.txt
