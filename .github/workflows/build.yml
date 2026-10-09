@@ -302,9 +302,8 @@ jobs:
       - name: FEX (ARM64EC -> xtajit64.dll)
         run: |
           set -euo pipefail
-          grep -n 'MINGW_TRIPLE' FEX/Data/CMake/toolchain_mingw.cmake || true
-          perl -pi -e 's/-DBUILD_FEXCONFIG=ON/-DMINGW_TRIPLE=arm64ec-w64-mingw32 -DBUILD_FEXCONFIG=ON/' build/fex-arm64ec/build.sh
-          grep -n 'MINGW_TRIPLE' build/fex-arm64ec/build.sh
+          perl -pi -e 's/-DBUILD_FEXCONFIG=ON/-DMINGW_TRIPLE=arm64ec-w64-mingw32 -DTUNE_CPU=generic -DBUILD_FEXCONFIG=ON/' build/fex-arm64ec/build.sh
+          grep -n 'TUNE_CPU' build/fex-arm64ec/build.sh
           bash build/fex-arm64ec/build.sh
 
       - name: Wine unix side
