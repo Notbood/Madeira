@@ -300,7 +300,15 @@ jobs:
           ls -l FEX/build-ios/FEXCore/Source/*.a
 
       - name: FEX (ARM64EC -> xtajit64.dll)
-        run: bash build/fex-arm64ec/build.sh
+        run: |
+          set -euo pipefail
+          export PATH="$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW/bin:$PATH"
+          export MINGW_TRIPLE=arm64ec-w64-mingw32
+          ls "$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW/bin" | grep -E '^arm64ec.*clang' || true
+          echo "----- build.sh -----"
+          cat build/fex-arm64ec/build.sh
+          echo "--------------------"
+          bash build/fex-arm64ec/build.sh
 
       - name: Wine unix side
         run: |
