@@ -435,11 +435,21 @@ jobs:
       - name: Build app (Debug, unsigned)
         # Debug is intentional: docs/BUILDING.md says Release builds crash the guest.
         run: |
+          set +e
           xcodebuild -project app/Madeira.xcodeproj -scheme Madeira \
             -configuration Debug -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/dd" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build
+            build 2>&1 | tee /tmp/xcodebuild.log
+          rc=${PIPESTATUS[0]}
+          if [ $rc -ne 0 ]; then
+            echo "=========== LINK / COMPILE ERRORS ==========="
+            grep -n -E 'error:|Undefined symbols|duplicate symbol|ld: |not found' /tmp/xcodebuild.log \
+              | grep -v 'ld: warning' | head -40
+            echo "--- context of first linker problem ---"
+            grep -n -m1 -B2 -A20 -E 'Undefined symbols|duplicate symbol|ld: (library|framework|file|symbol)' /tmp/xcodebuild.log
+          fi
+          exit $rc
 
       - name: Package IPA
         run: |
