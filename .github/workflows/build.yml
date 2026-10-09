@@ -336,6 +336,15 @@ jobs:
       - name: Metal toolchain (separate download since Xcode 26)
         run: xcodebuild -downloadComponent MetalToolchain || true
 
+      - name: DXMT shader header diagnostics
+        run: |
+          xcrun --find metal || echo "NO metal compiler"
+          ls dxmt/src/airconv/shaders/ || true
+          grep -n 'xxd\|xcrun\|\.metal\|msad' build/dxmt-ios/build.sh | head -40
+          grep -n '#include "air_' dxmt/src/airconv/airconv_context.cpp
+          grep -n 'msad' dxmt/src/airconv/airconv_context.cpp | head
+          find . -name 'air_msad*' -not -path './toolchains/*' | head
+
       - name: DXMT unix side
         run: |
           if ! bash build/dxmt-ios/build.sh; then
