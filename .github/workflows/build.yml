@@ -302,10 +302,15 @@ jobs:
       - name: FEX (ARM64EC -> xtajit64.dll)
         run: |
           set -uo pipefail
-          perl -pi -e 's/-DBUILD_FEXCONFIG=ON/-DMINGW_TRIPLE=arm64ec-w64-mingw32 -DTUNE_CPU=generic -DCMAKE_C_FLAGS=-DFEX_IOS_HOST -DCMAKE_CXX_FLAGS=-DFEX_IOS_HOST -DBUILD_FEXCONFIG=ON/' build/fex-arm64ec/build.sh
+          perl -pi -e 's/-DBUILD_FEXCONFIG=ON/-DMINGW_TRIPLE=arm64ec-w64-mingw32 -DTUNE_CPU=generic -DFEX_IOS_HOST_BUILD=ON -DCMAKE_C_FLAGS=-DFEX_IOS_HOST -DCMAKE_CXX_FLAGS=-DFEX_IOS_HOST -DCMAKE_ASM_FLAGS=-DFEX_IOS_HOST -DBUILD_FEXCONFIG=ON/' build/fex-arm64ec/build.sh
           if ! bash build/fex-arm64ec/build.sh; then
             echo "=========== DIAGNOSTICS ==========="
-            grep -rnI -e 'FEX_IOS_HOST' -e 'IosJitAlias' FEX build --include='CMakeLists.txt' --include='*.cmake' --include='*.sh' --exclude-dir=build-arm64ec --exclude-dir=build-ios | head -30
+            echo "--- ARM64EC/CMakeLists.txt ---"; head -80 FEX/Source/Windows/ARM64EC/CMakeLists.txt
+            echo "--- CRT/CMakeLists.txt ---"; head -60 FEX/Source/Windows/Common/CRT/CMakeLists.txt
+            echo "--- fex-wow64/build.sh ---"; head -40 build/fex-wow64/build.sh
+            echo "--- link command (no .obj) ---"
+            tr ' ' '\n' < FEX/build-arm64ec/Source/Windows/ARM64EC/CMakeFiles/arm64ecfex.dir/link.txt | grep -v '\.obj$' | head -60
+            echo "--- BUILDING.md mentions ---"; grep -n -B2 -A8 'fex-arm64ec' docs/BUILDING.md | head -50
             exit 1
           fi
 
