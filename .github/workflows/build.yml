@@ -345,6 +345,17 @@ jobs:
           grep -n 'msad' dxmt/src/airconv/airconv_context.cpp | head
           find . -name 'air_msad*' -not -path './toolchains/*' | head
 
+      - name: DXMT airconv shader headers
+        run: |
+          set -euo pipefail
+          cd dxmt/src/airconv
+          for s in air_msad air_samplepos air_tessellation; do
+            xcrun -sdk macosx metal -std=metal3.1 --target=air64-apple-macos14.0 \
+              -o "/tmp/$s.air" -c "shaders/$s.metal"
+            xxd -n "$s" -i "/tmp/$s.air" "$s.h"
+          done
+          ls -l air_*.h
+
       - name: DXMT unix side
         run: |
           if ! bash build/dxmt-ios/build.sh; then
