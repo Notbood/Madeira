@@ -301,10 +301,19 @@ jobs:
 
       - name: FEX (ARM64EC -> xtajit64.dll)
         run: |
-          set -euo pipefail
+          set -uo pipefail
           perl -pi -e 's/-DBUILD_FEXCONFIG=ON/-DMINGW_TRIPLE=arm64ec-w64-mingw32 -DTUNE_CPU=generic -DBUILD_FEXCONFIG=ON/' build/fex-arm64ec/build.sh
-          grep -n 'TUNE_CPU' build/fex-arm64ec/build.sh
-          bash build/fex-arm64ec/build.sh
+          if ! bash build/fex-arm64ec/build.sh; then
+            echo "=========== DIAGNOSTICS ==========="
+            echo "--- where IosJitReverseTranslate appears ---"
+            grep -rnI 'IosJitReverseTranslate' FEX build app --exclude-dir=build-arm64ec --exclude-dir=build-ios | head -20
+            echo "--- Module.cpp includes and conditionals ---"
+            grep -nE '^\s*#\s*(include|if|ifdef|ifndef|else|endif)' FEX/Source/Windows/ARM64EC/Module.cpp | head -60
+            echo "--- FEX revision ---"
+            git submodule status FEX
+            git -C FEX log -1 --oneline
+            exit 1
+          fi
 
       - name: Wine unix side
         run: |
