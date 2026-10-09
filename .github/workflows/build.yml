@@ -337,7 +337,14 @@ jobs:
         run: xcodebuild -downloadComponent MetalToolchain || true
 
       - name: DXMT unix side
-        run: bash build/dxmt-ios/build.sh
+        run: |
+          if ! bash build/dxmt-ios/build.sh; then
+            echo "=========== COMPILER ERRORS ==========="
+            for f in build/dxmt-ios/obj/*.err; do
+              if [ -s "$f" ]; then echo "--- $f"; head -50 "$f"; fi
+            done
+            exit 1
+          fi
 
       - name: DXMT PE side (winemetal, d3d11)
         run: |
