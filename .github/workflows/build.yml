@@ -431,6 +431,17 @@ jobs:
             exit 1
           fi
 
+      - name: DXMT combined archive (unix side + LLVM)
+        run: |
+          set -euo pipefail
+          D=build/dxmt-ios
+          test -f $D/libdxmt_unix.a
+          ls toolchains/llvm-ios-build/lib/libLLVM*.a | wc -l
+          xcrun -sdk iphoneos libtool -static -no_warning_for_no_symbols \
+            -o $D/libdxmt_combined.a $D/libdxmt_unix.a toolchains/llvm-ios-build/lib/libLLVM*.a
+          cp $D/libdxmt_combined.a app/Madeira/libdxmt_combined.a
+          ls -l app/Madeira/libdxmt_combined.a
+
       - name: DXMT PE side (winemetal, d3d11)
         run: |
           set -euo pipefail
