@@ -345,7 +345,12 @@ jobs:
           FT="$(brew --prefix freetype)/include/freetype2"
           test -f "$FT/ft2build.h"
           export CPATH="$FT${CPATH:+:$CPATH}"
-
+          # dwrite's unix lib includes idl-generated headers, which Wine makes on demand
+          export PATH="$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW/bin:$PATH"
+          for h in dwrite dwrite_1 dwrite_2 dwrite_3; do
+            make -C wine/build-arm64ec "include/$h.h" || echo "skipped $h.h"
+          done
+          ls wine/build-arm64ec/include/dwrite*.h
           run_build() {
             local name=$1
             if ! bash "build/$name/build.sh" > "/tmp/$name.log" 2>&1; then
