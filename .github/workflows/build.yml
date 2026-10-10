@@ -345,6 +345,7 @@ jobs:
           FT="$(brew --prefix freetype)/include/freetype2"
           test -f "$FT/ft2build.h"
           export CPATH="$FT${CPATH:+:$CPATH}"
+
           # Wine makes idl-generated headers on demand; make them all in one pass
           export PATH="$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW/bin:$PATH"
           HDRS=$(for f in wine/include/*.idl; do echo "include/$(basename "$f" .idl).h"; done)
@@ -352,9 +353,7 @@ jobs:
           tail -n 3 /tmp/idl-headers.log
           ls wine/build-arm64ec/include/dcommon.h wine/build-arm64ec/include/dwrite.h
           ls wine/build-arm64ec/include/*.h | wc -l
-            make -C wine/build-arm64ec "include/$h.h" || echo "skipped $h.h"
-          done
-          ls wine/build-arm64ec/include/dwrite*.h
+
           run_build() {
             local name=$1
             if ! bash "build/$name/build.sh" > "/tmp/$name.log" 2>&1; then
