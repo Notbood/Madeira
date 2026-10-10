@@ -336,7 +336,16 @@ jobs:
       - name: Wine unix side (ntdll, wineserver, win32u)
         run: |
           set -euo pipefail
-          bash build/ntdll-unix/build.sh
+          if ! bash build/ntdll-unix/build.sh; then
+            echo "=========== NTDLL-UNIX ERRORS ==========="
+            find build/ntdll-unix -name '*.err' -size +0 | head -5
+            for f in $(find build/ntdll-unix -name '*.err' -size +0 | head -3); do
+              echo "--- $f"; grep -m6 -A4 'error' "$f" || head -20 "$f"
+            done
+            echo "=========== build.sh head ==========="
+            sed -n 1,60p build/ntdll-unix/build.sh
+            exit 1
+          fi
           bash build/wineserver/build.sh
           bash build/win32u-unix/build.sh
           ls -l app/Madeira/lib{ntdll_unix,wineserver,win32u_unix}.a
