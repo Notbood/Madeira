@@ -333,6 +333,20 @@ jobs:
             cp "$f" "$FARM/"
           done
 
+      - name: Wine unix side (ntdll, wineserver, win32u)
+        run: |
+          set -euo pipefail
+          bash build/ntdll-unix/build.sh
+          bash build/wineserver/build.sh
+          bash build/win32u-unix/build.sh
+          ls -l app/Madeira/lib{ntdll_unix,wineserver,win32u_unix}.a
+
+      - name: Check libraries the app links
+        run: |
+          for l in wineserver ntdll_unix win32u_unix dxmt_combined madeira_rppairing gnutls hogweed nettle gmp avformat avcodec swresample avutil; do
+            [ -f "app/Madeira/lib$l.a" ] || echo "MISSING app/Madeira/lib$l.a"
+          done
+
       - name: Metal toolchain (separate download since Xcode 26)
         run: xcodebuild -downloadComponent MetalToolchain || true
 
