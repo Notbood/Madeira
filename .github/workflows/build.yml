@@ -345,9 +345,13 @@ jobs:
           FT="$(brew --prefix freetype)/include/freetype2"
           test -f "$FT/ft2build.h"
           export CPATH="$FT${CPATH:+:$CPATH}"
-          # dwrite's unix lib includes idl-generated headers, which Wine makes on demand
+          # Wine makes idl-generated headers on demand; make them all in one pass
           export PATH="$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW/bin:$PATH"
-          for h in dwrite dwrite_1 dwrite_2 dwrite_3; do
+          HDRS=$(for f in wine/include/*.idl; do echo "include/$(basename "$f" .idl).h"; done)
+          make -C wine/build-arm64ec -k -j4 $HDRS > /tmp/idl-headers.log 2>&1 || true
+          tail -n 3 /tmp/idl-headers.log
+          ls wine/build-arm64ec/include/dcommon.h wine/build-arm64ec/include/dwrite.h
+          ls wine/build-arm64ec/include/*.h | wc -l
             make -C wine/build-arm64ec "include/$h.h" || echo "skipped $h.h"
           done
           ls wine/build-arm64ec/include/dwrite*.h
