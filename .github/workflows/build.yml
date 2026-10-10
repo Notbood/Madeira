@@ -339,16 +339,29 @@ jobs:
           # build/ntdll-unix/build.sh hard-codes wine/build-macos; reuse the arm64ec tree
           test -f wine/build-arm64ec/include/config.h
           ln -sfn build-arm64ec wine/build-macos
-          if ! bash build/ntdll-unix/build.sh > /tmp/ntdll-unix.log 2>&1; then
-            grep -E 'FAILED|Results|Failed:' /tmp/ntdll-unix.log | head -50
-            echo "=========== REAL ERRORS ==========="
-            for f in $(grep -l 'error:' build/ntdll-unix/obj/*.err | head -4); do
-              echo "--- $f"; grep -m4 -A3 'error:' "$f"
-            done
-            exit 1
-          fi
-          bash build/wineserver/build.sh
-          bash build/win32u-unix/build.sh
+
+          # dwrite's unix lib needs FreeType headers (headers only)
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install freetype
+          FT="$(brew --prefix freetype)/include/freetype2"
+          test -f "$FT/ft2build.h"
+          export CPATH="$FT${CPATH:+:$CPATH}"
+
+          run_build() {
+            local name=$1
+            if ! bash "build/$name/build.sh" > "/tmp/$name.log" 2>&1; then
+              echo "=========== $name FAILED ==========="
+              grep -E 'FAILED|Results|Failed:' "/tmp/$name.log" | head -30
+              for f in $(grep -l 'error:' build/$name/obj/*.err 2>/dev/null | head -4); do
+                echo "--- $f"; grep -m4 -A3 'error:' "$f"
+              done
+              tail -n 25 "/tmp/$name.log"
+              return 1
+            fi
+            tail -n 3 "/tmp/$name.log"
+          }
+          run_build ntdll-unix
+          run_build wineserver
+          run_build win32u-unix
           ls -l app/Madeira/lib{ntdll_unix,wineserver,win32u_unix}.a
 
       - name: Check libraries the app links
