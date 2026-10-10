@@ -336,6 +336,9 @@ jobs:
       - name: Wine unix side (ntdll, wineserver, win32u)
         run: |
           set -euo pipefail
+          test -f wine/build-arm64ec/include/config.h
+          ln -sfn build-arm64ec wine/build-macos
+          echo "scripts that reference build-macos:"; grep -rln 'build-macos' build | head
           if ! bash build/ntdll-unix/build.sh; then
             echo "=========== NTDLL-UNIX ERRORS ==========="
             find build/ntdll-unix -name '*.err' -size +0 | head -5
