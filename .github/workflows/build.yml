@@ -523,6 +523,14 @@ jobs:
       - name: Refresh bundled licence copies (Xcode build fails if stale)
         run: bash build/stage-licenses.sh
 
+      - name: FreeType diagnostics
+        run: |
+          echo "--- config.h ---"; grep -in 'freetype\|ft2build' wine/build-arm64ec/include/config.h || echo "none"
+          echo "--- shims ---"; grep -rIn 'ios_dwft_syms\|ios_ft_dlsym' build wine/dlls/win32u wine/dlls/dwrite 2>/dev/null | cut -c1-200 | head -12
+          echo "--- build scripts ---"; grep -n -i 'freetype' build/*/build.sh | cut -c1-200 | head -20
+          echo "--- xcodeproj ---"; grep -n -i 'freetype' app/Madeira.xcodeproj/project.pbxproj | head -10 || true
+          echo "--- files ---"; find . -iname '*freetype*' -not -path './toolchains/*' -not -path './.git/*' | head -20
+
       - name: Build app (Debug, unsigned)
         # Debug is intentional: docs/BUILDING.md says Release builds crash the guest.
         run: |
