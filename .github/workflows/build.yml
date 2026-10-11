@@ -339,26 +339,19 @@ jobs:
           # build/ntdll-unix/build.sh hard-codes wine/build-macos; reuse the arm64ec tree
           test -f wine/build-arm64ec/include/config.h
           ln -sfn build-arm64ec wine/build-macos
-          
-          # CI's config.h picked up the runner's Homebrew FreeType; the author's tree has none,
-          # so drop those macros to compile the same (FreeType-free) code paths.
-          grep -in 'freetype\|ft2build' wine/build-arm64ec/include/config.h || true
-          perl -ni -e 'print unless /^#define .*(FREETYPE|FT2BUILD)/' wine/build-arm64ec/include/config.h
-          grep -ic 'freetype' wine/build-arm64ec/include/config.h || true
 
-          # dwrite's unix lib needs FreeType headers (headers only)
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install freetype
-          FT="$(brew --prefix freetype)/include/freetype2"
-          test -f "$FT/ft2build.h"
-          export CPATH="$FT${CPATH:+:$CPATH}"
+          # Static FreeType 2.13.3 for iOS, as described in build/freetype-ios/build.sh
+          mkdir -p research
+          [ -d research/freetype ] || git clone --depth 1 --branch VER-2-13-3 \
+            https://github.com/freetype/freetype.git research/freetype
+          bash build/freetype-ios/build.sh > /tmp/freetype.log 2>&1 || { tail -30 /tmp/freetype.log; exit 1; }
+          ls -l build/freetype-ios/build/libfreetype.a
 
           # Wine makes idl-generated headers on demand; make them all in one pass
           export PATH="$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW/bin:$PATH"
           HDRS=$(for f in wine/include/*.idl; do echo "include/$(basename "$f" .idl).h"; done)
           make -C wine/build-arm64ec -k -j4 $HDRS > /tmp/idl-headers.log 2>&1 || true
-          tail -n 3 /tmp/idl-headers.log
           ls wine/build-arm64ec/include/dcommon.h wine/build-arm64ec/include/dwrite.h
-          ls wine/build-arm64ec/include/*.h | wc -l
 
           run_build() {
             local name=$1
@@ -373,6 +366,7 @@ jobs:
             tail -n 3 "/tmp/$name.log"
           }
           run_build ntdll-unix
+
           # build.sh patches a prebuilt base libwineserver.a that isn't in the repo.
           # Reconstruct one from Wine's stock server sources with the script's own CC_FLAGS.
           if [ ! -f app/Madeira/libwineserver.a ] && [ ! -f build/wineserver/obj/libwineserver.a ]; then
@@ -383,13 +377,12 @@ jobs:
             OBJ=build/wineserver/obj; mkdir -p "$OBJ/base"
             for src in wine/server/*.c; do
               n=$(basename "$src" .c)
-              [ "$n" = ptrace ] && continue    # Linux-only; mach_ios.c replaces mach.c
+              [ "$n" = ptrace ] && continue
               if ! xcrun -sdk iphoneos clang "${CC_FLAGS[@]}" -c "$src" -o "$OBJ/base/$n.o" 2> "$OBJ/base/err-$n.txt"; then
                 echo "base: $n FAILED"; head -5 "$OBJ/base/err-$n.txt"
               fi
             done
             xcrun -sdk iphoneos ar rcs "$OBJ/libwineserver.a" "$OBJ"/base/*.o
-            xcrun -sdk iphoneos ar t "$OBJ/libwineserver.a" | tr '\n' ' '; echo
           fi
           run_build wineserver
           run_build win32u-unix
