@@ -435,9 +435,19 @@ jobs:
           set -euo pipefail
           D=build/dxmt-ios
           test -f $D/libdxmt_unix.a
-          ls toolchains/llvm-ios-build/lib/libLLVM*.a | wc -l
+          # LLVM's Process.cpp calls four terminfo functions only to detect terminal colour;
+          # stub them instead of linking curses.
+          cat > /tmp/terminfo_stubs.c <<'EOF'
+          int setupterm(const char *t, int fd, int *err) { (void)t; (void)fd; if (err) *err = -1; return -1; }
+          void *set_curterm(void *t) { (void)t; return 0; }
+          int del_curterm(void *t) { (void)t; return 0; }
+          int tigetnum(const char *c) { (void)c; return -2; }
+          EOF
+          xcrun -sdk iphoneos clang -arch arm64 -miphoneos-version-min=17.0 \
+            -c /tmp/terminfo_stubs.c -o /tmp/terminfo_stubs.o
           xcrun -sdk iphoneos libtool -static -no_warning_for_no_symbols \
-            -o $D/libdxmt_combined.a $D/libdxmt_unix.a toolchains/llvm-ios-build/lib/libLLVM*.a
+            -o $D/libdxmt_combined.a $D/libdxmt_unix.a /tmp/terminfo_stubs.o \
+            toolchains/llvm-ios-build/lib/libLLVM*.a
           cp $D/libdxmt_combined.a app/Madeira/libdxmt_combined.a
           ls -l app/Madeira/libdxmt_combined.a
 
