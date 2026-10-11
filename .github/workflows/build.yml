@@ -339,6 +339,12 @@ jobs:
           # build/ntdll-unix/build.sh hard-codes wine/build-macos; reuse the arm64ec tree
           test -f wine/build-arm64ec/include/config.h
           ln -sfn build-arm64ec wine/build-macos
+          
+          # CI's config.h picked up the runner's Homebrew FreeType; the author's tree has none,
+          # so drop those macros to compile the same (FreeType-free) code paths.
+          grep -in 'freetype\|ft2build' wine/build-arm64ec/include/config.h || true
+          perl -ni -e 'print unless /^#define .*(FREETYPE|FT2BUILD)/' wine/build-arm64ec/include/config.h
+          grep -ic 'freetype' wine/build-arm64ec/include/config.h || true
 
           # dwrite's unix lib needs FreeType headers (headers only)
           HOMEBREW_NO_AUTO_UPDATE=1 brew install freetype
