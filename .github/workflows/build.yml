@@ -486,27 +486,25 @@ jobs:
         run: bash build/madeira-d3d12/build-pe.sh
 
       - name: Madeira Dock (Steam client host -> dockhost.exe)
-        # madeira-dock is a submodule (cloned by the Submodules step). Per
-        # docs/LICENSING.md, build/madeira-dock/build.sh builds dockhost.exe
-        # with llvm-mingw and writes it plus dock-notices.txt into
-        # app/Madeira/arm64ec-windows/. Neither file is committed, so without
-        # this step the IPA has no Steam client host.
+        # madeira-dock is a submodule (cloned by the Submodules step).
+        # build/madeira-dock/build.sh builds an x86-64 dockhost.exe with
+        # llvm-mingw and stages it with dock-notices.txt in
+        # app/Madeira/arm64ec-windows/ (both gitignored). Without this step the
+        # IPA has no Steam client host and Madeira Dock stays hidden.
+        # NOTE: the script reads $LLVM_MINGW as the toolchain's *bin directory*,
+        # but this workflow's env LLVM_MINGW is just the folder *name*, so it
+        # is overridden for this one call.
         run: |
           set -uo pipefail
-          export PATH="$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW/bin:$PATH"
+          MINGW_BIN="$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW/bin"
+          test -x "$MINGW_BIN/x86_64-w64-mingw32-clang" || { echo "missing $MINGW_BIN/x86_64-w64-mingw32-clang"; ls "$MINGW_BIN" | head -30; exit 1; }
           test -f madeira-dock/src/main.c || { echo "madeira-dock submodule is empty"; git submodule status madeira-dock; exit 1; }
-          if [ ! -f build/madeira-dock/build.sh ]; then
-            echo "build/madeira-dock/build.sh not found"; ls build; ls madeira-dock/tools; exit 1
-          fi
-          if ! bash build/madeira-dock/build.sh 2>&1 | tee /tmp/madeira-dock.log; then
+          if ! LLVM_MINGW="$MINGW_BIN" bash build/madeira-dock/build.sh 2>&1 | tee /tmp/madeira-dock.log; then
             echo "=========== madeira-dock FAILED ==========="
             tail -n 40 /tmp/madeira-dock.log
-            echo "--- head of build/madeira-dock/build.sh ---"
-            sed -n '1,40p' build/madeira-dock/build.sh
             exit 1
           fi
-          ls -l app/Madeira/arm64ec-windows/dockhost.exe
-          ls -l app/Madeira/arm64ec-windows/dock-notices.txt || echo "dock-notices.txt not beside dockhost.exe (check where build.sh wrote it)"
+          ls -l app/Madeira/arm64ec-windows/dockhost.exe app/Madeira/arm64ec-windows/dock-notices.txt
 
       - name: In-app pairing (Rust -> libmadeira_rppairing.a)
         run: |
