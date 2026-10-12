@@ -484,7 +484,30 @@ jobs:
 
       - name: Native Direct3D 12 runtime
         run: bash build/madeira-d3d12/build-pe.sh
-        
+
+      - name: Madeira Dock (Steam client host -> dockhost.exe)
+        # madeira-dock is a submodule (cloned by the Submodules step). Per
+        # docs/LICENSING.md, build/madeira-dock/build.sh builds dockhost.exe
+        # with llvm-mingw and writes it plus dock-notices.txt into
+        # app/Madeira/arm64ec-windows/. Neither file is committed, so without
+        # this step the IPA has no Steam client host.
+        run: |
+          set -uo pipefail
+          export PATH="$GITHUB_WORKSPACE/toolchains/$LLVM_MINGW/bin:$PATH"
+          test -f madeira-dock/src/main.c || { echo "madeira-dock submodule is empty"; git submodule status madeira-dock; exit 1; }
+          if [ ! -f build/madeira-dock/build.sh ]; then
+            echo "build/madeira-dock/build.sh not found"; ls build; ls madeira-dock/tools; exit 1
+          fi
+          if ! bash build/madeira-dock/build.sh 2>&1 | tee /tmp/madeira-dock.log; then
+            echo "=========== madeira-dock FAILED ==========="
+            tail -n 40 /tmp/madeira-dock.log
+            echo "--- head of build/madeira-dock/build.sh ---"
+            sed -n '1,40p' build/madeira-dock/build.sh
+            exit 1
+          fi
+          ls -l app/Madeira/arm64ec-windows/dockhost.exe
+          ls -l app/Madeira/arm64ec-windows/dock-notices.txt || echo "dock-notices.txt not beside dockhost.exe (check where build.sh wrote it)"
+
       - name: In-app pairing (Rust -> libmadeira_rppairing.a)
         run: |
           set -euo pipefail
