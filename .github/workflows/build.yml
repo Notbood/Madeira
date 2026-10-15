@@ -316,7 +316,13 @@ jobs:
           fi
 
       - name: Wine PE side (ntdll)
-        run: bash build/wine-pe/build-ntdll.sh
+        run: |
+          set -euo pipefail
+          # build-ntdll.sh runs `make -C dlls/ntdll`, which also links the host
+          # ntdll.so (fails: undefined ios_avail_phys). Only the PE dll is used.
+          perl -pi -e 's#make -C dlls/ntdll#make -j4 dlls/ntdll/arm64ec-windows/ntdll.dll#' build/wine-pe/build-ntdll.sh
+          grep -q 'make -j4 dlls/ntdll/arm64ec-windows/ntdll.dll' build/wine-pe/build-ntdll.sh
+          bash build/wine-pe/build-ntdll.sh
 
       - name: Extra Wine PE modules (winegstreamer, dcomp, ktmw32)
         run: |
