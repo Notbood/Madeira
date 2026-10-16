@@ -161,14 +161,17 @@ jobs:
       - name: Collect the Microsoft-signed VC++ runtime DLLs
         shell: pwsh
         run: |
-          $want = 'concrt140','msvcp140','msvcp140_1','msvcp140_2','msvcp140_atomic_wait','msvcp140_codecvt_ids','vcamp140','vccorlib140','vcomp140','vcruntime140','vcruntime140_1','vcruntime140_threads'
+          $want = 'concrt140','mfc140','mfc140u','msvcp140','msvcp140_1','msvcp140_2','msvcp140_atomic_wait','msvcp140_codecvt_ids','vcamp140','vccorlib140','vcomp140','vcruntime140','vcruntime140_1','vcruntime140_threads'
           New-Item -ItemType Directory -Force -Path out | Out-Null
           $files = Get-ChildItem -Path "$env:ProgramFiles\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64\Microsoft.VC*\*.dll" -ErrorAction SilentlyContinue |
             Sort-Object FullName -Descending
           foreach ($n in $want) {
             $f = $files | Where-Object { $_.Name -ieq "$n.dll" } | Select-Object -First 1
             if (-not $f) { $f = Get-ChildItem "$env:SystemRoot\System32\$n.dll" -ErrorAction SilentlyContinue | Select-Object -First 1 }
-            if (-not $f) { throw "missing $n.dll" }
+            if (-not $f) {
+              if ($n -like 'mfc140*') { Write-Warning "$n.dll not found (MFC missing on runner)"; continue }
+              throw "missing $n.dll"
+            }
             $sig = Get-AuthenticodeSignature $f.FullName
             if ($sig.Status -in 'NotSigned','HashMismatch') { throw "$($f.FullName): $($sig.Status)" }
             Copy-Item $f.FullName out\
@@ -269,6 +272,7 @@ jobs:
           for n in concrt140 msvcp140 msvcp140_1 msvcp140_2 msvcp140_atomic_wait msvcp140_codecvt_ids vcamp140 vccorlib140 vcomp140 vcruntime140 vcruntime140_1 vcruntime140_threads; do
             test -f "$n.dll" || { echo "missing $n.dll"; exit 1; }
           done
+          for n in mfc140 mfc140u; do test -f "$n.dll" || echo "::warning::missing $n.dll"; done
 
       # ---- native build chains, in the order of docs/BUILDING.md ----
 
@@ -560,6 +564,14 @@ jobs:
           echo "--- build scripts ---"; grep -n -i 'freetype' build/*/build.sh | cut -c1-200 | head -20
           echo "--- xcodeproj ---"; grep -n -i 'freetype' app/Madeira.xcodeproj/project.pbxproj | head -10 || true
           echo "--- files ---"; find . -iname '*freetype*' -not -path './toolchains/*' -not -path './.git/*' | head -20
+
+      - name: Check this wave additions
+        run: |
+          F=app/Madeira/arm64ec-windows
+          for n in faultrep vulkan-1 d3d10 avifil32; do
+            [ -f "$F/$n.dll" ] && echo "ok       $n.dll" || echo "::warning::MISSING $n.dll"
+          done
+          grep -n -E 'config\.h|iPhoneOS|build-macos' build/ntdll-unix/build.sh | head -12 || true
 
       - name: Build app (Debug, unsigned)
         # Debug is intentional: docs/BUILDING.md says Release builds crash the guest.
