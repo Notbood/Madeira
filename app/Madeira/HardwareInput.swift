@@ -98,92 +98,6 @@ import ObjectiveC
 // Foundation only, no UIKit or Wine symbols: the host test compiles this
 // section on its own, up to the "Device glue" marker below.
 
-/// A clipboard scalar is one queue entry. ASCII uses physical keys for games
-/// that read scan codes; other text uses Windows' Unicode packet input.
-struct PasteStroke {
-    let scalar: UInt32
-    let vk: Int32
-    let shift: Bool
-}
-
-struct PasteText {
-    private var scalars: String.UnicodeScalarView.Iterator
-    private(set) var next: PasteStroke?
-
-    static func interval(milliseconds: String?) -> Double {
-        guard let raw = milliseconds, let value = Double(raw), value.isFinite else { return 0.01 }
-        return min(100, max(5, value)) / 1000
-    }
-
-    init(_ text: String) {
-        scalars = text.replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n").unicodeScalars.makeIterator()
-        advance()
-    }
-
-    mutating func advance() {
-        next = nil
-        while let scalar = scalars.next() {
-            let value = scalar.value
-            // NUL, Backspace, Escape and other clipboard controls must not
-            // become game commands. Tab and newline intentionally type keys.
-            guard value == 9 || value == 10 || (value >= 32 && value != 127) else { continue }
-            let key = Self.key(for: Character(String(scalar)))
-            next = PasteStroke(scalar: value, vk: key?.0 ?? 0, shift: key?.1 ?? false)
-            return
-        }
-    }
-
-    static func isCommandV(_ vk: Int32, held: Set<Int32>) -> Bool {
-        let commands: Set<Int32> = [0x5B, 0x5C]
-        return vk == 0x56 && !held.isDisjoint(with: commands)
-            && held.isSubset(of: commands.union([0x56]))
-    }
-
-    // Shared with the software keyboard. Restrict letter folding to ASCII:
-    // uppercasing a non-ASCII character (e.g. ß) can produce multiple letters.
-    static func key(for ch: Character) -> (Int32, Bool)? {
-        guard let a = ch.asciiValue else { return nil }
-        switch a {
-        case 10, 13: return (0x0D, false)
-        case 9: return (0x09, false)
-        case 32: return (0x20, false)
-        case 65...90: return (Int32(a), true)
-        case 97...122: return (Int32(a - 32), false)
-        case 48...57: return (Int32(a), false)
-        default: break
-        }
-        let plain = "-=[]\\;',./`"
-        let shifted = "_+{}|:\"<>?~"
-        let keys: [Int32] = [0xBD, 0xBB, 0xDB, 0xDD, 0xDC, 0xBA, 0xDE, 0xBC, 0xBE, 0xBF, 0xC0]
-        if let i = Array(plain).firstIndex(of: ch) { return (keys[i], false) }
-        if let i = Array(shifted).firstIndex(of: ch) { return (keys[i], true) }
-        if let i = Array(")!@#$%^&*(").firstIndex(of: ch) { return (Int32(0x30 + i), true) }
-        return nil
-    }
-}
-
-/// Each explicit paste is a complete request, even when the user taps Paste
-/// again before the previous request has finished reaching the game.
-struct PasteQueue {
-    private var active: PasteText?
-    private var pending: [PasteText] = []
-    var next: PasteStroke? { active?.next }
-
-    mutating func append(_ text: String) {
-        let request = PasteText(text)
-        guard request.next != nil else { return }
-        if active == nil { active = request } else { pending.append(request) }
-    }
-
-    mutating func advance() {
-        active?.advance()
-        if active?.next == nil { active = pending.isEmpty ? nil : pending.removeFirst() }
-    }
-
-    mutating func cancel() { active = nil; pending.removeAll() }
-}
-
 enum HardwareKeyMap {
     /// Windows virtual-key code for a USB HID keyboard/keypad usage (page
     /// 0x07), or nil for a key Windows has no virtual key for. Ordered exactly
@@ -382,18 +296,6 @@ struct WheelAccumulator {
     }
 
     mutating func reset() { x = 0; y = 0 }
-}
-
-/// GCMouse's scroll pad reports the vertical wheel in its first value,
-/// negative away from the user, and the horizontal wheel in its second,
-/// positive to the right (SDL reads it the same way: vertical = -x,
-/// horizontal = y, in SDL_uikitevents.m). Passed through unchanged, every
-/// wheel turn reached Windows as MOUSEEVENTF_HWHEEL. Returns
-/// WheelAccumulator's (dx, dy).
-enum GCMouseWheel {
-    static func axes(_ first: Double, _ second: Double) -> (dx: Double, dy: Double) {
-        (second, -first)
-    }
 }
 
 /// AssistiveTouch (the only pointer path iPhone has) turns a mouse CLICK into
@@ -686,12 +588,6 @@ final class HardwareInput: ObservableObject {
 
     private var keys = FocusGate<Int32>()
     private var keysPosted = HeldEdges<Int32>()
-    // Defer Command until its partner is known: Command-V must not open the
-    // guest Start menu. A Command tap or another chord still reaches Windows.
-    private var deferredCommands: Set<Int32> = []
-    private var pasteText = PasteQueue()
-    private var pasteTimer: Timer?
-    private var pasteInterval = 0.01
     /// Buttons whose press went to the program and are still down.
     private var gameButtons: Set<MouseButton> = []
     private var buttonsPosted = HeldEdges<MouseButton>()
@@ -882,8 +778,6 @@ final class HardwareInput: ObservableObject {
 
     /// Post an up for everything the program was told is held.
     private func releaseAll(_ why: String) {
-        cancelPaste()
-        deferredCommands.removeAll()
         let had = keysPosted.down.count + buttonsPosted.down.count
         keys.focusLost()
         pendingButtons.removeAll()
@@ -920,7 +814,7 @@ final class HardwareInput: ObservableObject {
         baseFocused = base
         if keyboard != keyboardFocused {
             keyboardFocused = keyboard
-            if !keyboard { keys.focusLost(); deferredCommands.removeAll(); cancelPaste() }
+            if !keyboard { keys.focusLost() }
             syncKeys()
             log("keyboard focus: \(keyboard ? "program" : "elsewhere") (\(why))")
         }
@@ -945,7 +839,6 @@ final class HardwareInput: ObservableObject {
     /// the scene's windows.
     private func computeBaseFocus() -> Bool {
         guard appActive, UIApplication.shared.applicationState == .active else { return false }
-        if LibraryModel.shared.enabled && LibraryModel.shared.menu { return false }
         guard Self.focusEnabled else { return true }
         guard let v = MetalBackedView.keyboardTarget, let w = v.window,
               !v.isHidden, !w.isHidden, v.alpha > 0.01 else { return false }
@@ -962,7 +855,7 @@ final class HardwareInput: ObservableObject {
     /// game view's own text bridge is the program's, not "elsewhere".
     private func typingElsewhere() -> Bool {
         guard Self.focusEnabled, let fr = FirstResponder.current else { return false }
-        return fr !== MetalBackedView.keyboardTarget && !(fr is LibraryKeyInput) && fr is UIKeyInput
+        return fr !== MetalBackedView.keyboardTarget && fr is UIKeyInput
     }
 
     /// Four times a second while a keyboard, mouse or controller is attached:
@@ -1019,8 +912,6 @@ final class HardwareInput: ObservableObject {
     }
 
     private func detachKeyboard() {
-        cancelPaste()
-        deferredCommands.removeAll()
         // A key held while the keyboard's battery dies never sends its up.
         keys.reset()
         syncKeys()
@@ -1038,37 +929,7 @@ final class HardwareInput: ObservableObject {
             return
         }
         refreshFocus("key")
-        let isCommand = vk == 0x5B || vk == 0x5C
-        if !pressed, deferredCommands.remove(vk) != nil,
-           keys.wanted(focused: keyboardFocused).contains(vk) {
-            cancelPaste()
-            winios_post_key(vk, 1); winios_post_key(vk, 0)
-        }
         if pressed { keys.press(vk, focused: keyboardFocused) } else { keys.release(vk) }
-        if pressed, keyboardFocused, isCommand, keys.physical.isSubset(of: [0x5B, 0x5C]) {
-            deferredCommands.insert(vk)
-        }
-        if pressed, keyboardFocused, PasteText.isCommandV(vk, held: keys.physical) {
-            // A first-responder text bridge owns UIKit's paste command. Do
-            // not discard it merely because GCKeyboard is connected: UIKit
-            // can consume the shortcut before the raw V callback arrives.
-            for key in keys.physical { keys.block(key) }
-            deferredCommands.removeAll()
-            syncKeys()
-            let responder = FirstResponder.current
-            if responder !== MetalBackedView.keyboardTarget && !(responder is LibraryKeyInput) {
-                pasteClipboard()
-            }
-            return
-        }
-        if pressed, !isCommand { cancelPaste() }
-        if pressed, !isCommand, !deferredCommands.isEmpty {
-            // Post the modifier BEFORE the other key, even though Windows VK
-            // sort order places e.g. A before LWIN.
-            let wanted = keysPosted.down.union(deferredCommands.intersection(keys.wanted(focused: keyboardFocused)))
-            for command in keysPosted.update(wanted).down { winios_post_key(command, 1) }
-            deferredCommands.removeAll()
-        }
         if pressed, keyboardFocused, Self.pointerLockAvailable,
            HardwareKeyMap.isPointerLockChord(vk, held: keys.physical) {
             keys.block(vk)
@@ -1081,53 +942,9 @@ final class HardwareInput: ObservableObject {
     }
 
     private func syncKeys() {
-        let edges = keysPosted.update(keys.wanted(focused: keyboardFocused).subtracting(deferredCommands))
+        let edges = keysPosted.update(keys.wanted(focused: keyboardFocused))
         for vk in edges.up { winios_post_key(vk, 0) }
         for vk in edges.down { winios_post_key(vk, 1) }
-    }
-
-    /// Read only in response to an explicit paste gesture, never on a timer.
-    func pasteClipboard() {
-        guard canPaste, let text = UIPasteboard.general.string else { return }
-        paste(text)
-    }
-
-    var canPaste: Bool { !LibraryModel.shared.menu && computeBaseFocus() && !typingElsewhere() }
-
-    func paste(_ text: String) {
-        guard canPaste else { return }
-        deferredCommands.removeAll()
-        // Held Command/Ctrl/Shift must not turn the inserted text into hotkeys.
-        // Suppress held keys until release, rather than inventing another down.
-        for vk in keys.physical { keys.block(vk) }
-        syncKeys()
-        LibraryKeyboard.input?.releaseModifiers()
-        pasteText.append(text)
-        guard pasteText.next != nil, pasteTimer == nil else { return }
-        let interval = PasteText.interval(milliseconds: getenv("MADEIRA_PASTE_INTERVAL_MS").map { String(cString: $0) })
-        pasteInterval = interval
-        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            self?.advancePaste()
-        }
-        pasteTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
-    }
-
-    private func advancePaste() {
-        guard canPaste, let stroke = pasteText.next else { cancelPaste(); return }
-        // Retry the SAME scalar under queue pressure. A whole character's
-        // down/up (and Shift, or a UTF-16 surrogate pair) is drained together.
-        if winios_try_post_text(stroke.scalar, stroke.vk, stroke.shift ? 1 : 0, Int32(pasteInterval * 1000)) != 0 {
-            pasteText.advance()
-            if pasteText.next == nil {
-                pasteTimer?.invalidate(); pasteTimer = nil
-            }
-        }
-    }
-
-    func cancelPaste() {
-        pasteTimer?.invalidate(); pasteTimer = nil; pasteText.cancel()
-        winios_cancel_text()
     }
 
     // MARK: - mouse
@@ -1171,8 +988,7 @@ final class HardwareInput: ObservableObject {
             }
         }
         m.scroll.valueChangedHandler = { [weak self] _, x, y in
-            let wheel = GCMouseWheel.axes(Double(x), Double(y))
-            self?.scrolled(wheel.dx, wheel.dy)
+            self?.gcScrolled(Double(x), Double(y))
         }
         noteMousePresent()
         if fresh {
@@ -1410,6 +1226,18 @@ final class HardwareInput: ObservableObject {
         for b in edges.down { let e = b.event(down: true); winios_pointer(0, 0, e.flags, e.data) }
     }
 
+    /// GCMouse wheel (mouse queue). The first value is vertical, the second
+    /// horizontal. A value big enough to be a wheel click counts as exactly
+    /// one notch; smaller values (a trackpad) still accumulate in `wheel`.
+    private func gcScrolled(_ x: Double, _ y: Double) {
+        let click = 0.25
+        func snap(_ v: Double) -> Double { abs(v) >= click ? (v > 0 ? 1.0 : -1.0) : v }
+        if diagnostics { log(String(format: "scroll raw x=%.3f y=%.3f", x, y)) }
+        // scrolled() takes (horizontal, vertical). Vertical keeps its sign
+        // here, which is the intuitive direction on this device.
+        scrolled(snap(y), snap(x))
+    }
+
     /// Reached from the mouse queue (GCMouse scroll) and from main (UIKit,
     /// which only scrolls a view the pointer is over).
     private func scrolled(_ x: Double, _ y: Double) {
@@ -1494,8 +1322,8 @@ final class HardwareInput: ObservableObject {
     }
 
     private func updateAutoLock() {
+        if Self.desktopMode { updateDesktopAutoLock(); return }
         guard Self.autoLockEnabled, directCursorLive, Self.pointerLockAvailable, mousePath == .gcmouse else {
-            if pointerLocked && lockedByUs { setPointerLocked(false, byUs: true, why: "automatic lock unavailable") }
             return
         }
         let now = CACurrentMediaTime()
@@ -1514,6 +1342,24 @@ final class HardwareInput: ObservableObject {
                              : baseFocused ? "the program stopped reporting" : "focus lost")
         default:
             break
+        }
+    }
+
+    /// Desktop session: the compositor's cursor always shows and the driver
+    /// sends no reports, so AutoLock's rule never applies. Lock while the
+    /// pointer is over the game view and the mouse is moving; release on
+    /// lost focus. Ctrl+Alt+P or the lock button still releases it.
+    private func updateDesktopAutoLock() {
+        guard Self.autoLockEnabled, Self.pointerLockAvailable, mousePath == .gcmouse else {
+            if pointerLocked && lockedByUs { setPointerLocked(false, byUs: true, why: "automatic lock unavailable") }
+            return
+        }
+        motionLock.lock(); let lastDelta = lastGCDeltaAt; motionLock.unlock()
+        let moving = lastDelta != 0 && CACurrentMediaTime() - lastDelta < AutoLock.moving
+        if pointerLocked {
+            if lockedByUs && !baseFocused { setPointerLocked(false, byUs: true, why: "focus lost") }
+        } else if pointerOver && baseFocused && moving && !autoLockSuppressed {
+            setPointerLocked(true, byUs: true, why: "pointer over the desktop")
         }
     }
 
@@ -1636,6 +1482,7 @@ final class HardwareInput: ObservableObject {
     func pointerHovered(at p: CGPoint, in view: UIView, inside: Bool) {
         guard Self.enabled else { return }
         guard inside else {
+            if Self.desktopMode { autoLockSuppressed = false }
             if pointerOver { pointerOver = false; refreshFocus("pointer left the game view") }
             return
         }
